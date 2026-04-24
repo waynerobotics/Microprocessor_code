@@ -1,4 +1,4 @@
-from roboclaw_3 import Roboclaw
+from MotorControllers.roboclaw.roboclaw_3 import Roboclaw
 import time
 
 # Define serial port for Linux (typically /dev/ttyACM0 or /dev/ttyS*)
