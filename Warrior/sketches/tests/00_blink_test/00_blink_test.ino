@@ -1,63 +1,113 @@
-/* * Hardware Settings 
- */
-bool isInverted = true; // Set to true for Nano ESP32, false for Uno/Standard
+#include <SerialProtocol.h>
+
+const char* DEVICE_NAME = "00_base";
+const bool USE_SERIAL_PROTOCOL = true;
+
+SerialProtocol serialProtocol(DEVICE_NAME);
+
+String serialLine = "";
 
 #if defined(ARDUINO_NANO_ESP32)
   const int redPin = LED_RED;
   const int greenPin = LED_GREEN;
   const int bluePin = LED_BLUE;
+  bool isInverted = true;
 #else
-  const int redPin = 3;   
+  const int redPin = 3;
   const int greenPin = 5;
   const int bluePin = 6;
+  bool isInverted = false;
 #endif
 
 void setup() {
-  Serial.begin(115200);
-  
+  serialProtocol.begin(115200);
+
   pinMode(redPin, OUTPUT);
   pinMode(greenPin, OUTPUT);
   pinMode(bluePin, OUTPUT);
 
   allOff();
-  Serial.println("System Ready. Send r, g, b, or o (Press Enter).");
+
+  Serial.println("00_blink_test ready");
 }
 
 void loop() {
-  if (Serial.available() > 0) {
-    char cmd = Serial.read();
-    
-    // Filter out 'Newline' or 'Carriage Return' so they don't reset the LED
-    if (cmd == '\n' || cmd == '\r') {
-      return; 
-    }
+  readSerialInput();
+}
 
-    processInput(cmd);
+void readSerialInput() {
+  if (USE_SERIAL_PROTOCOL) {
+    serialProtocol.update();
+
+    if (serialProtocol.hasMessage()) {
+      handleSerialMessage(serialProtocol.getMessage());
+      serialProtocol.clearMessage();
+    }
+  } else {
+    while (Serial.available() > 0) {
+      char c = Serial.read();
+
+      if (c == '\n' || c == '\r') {
+        if (serialLine.length() > 0) {
+          handleSerialMessage(serialLine.c_str());
+          serialLine = "";
+        }
+      } else {
+        serialLine += c;
+      }
+    }
   }
 }
 
-// --- Functional Logic ---
+void handleSerialMessage(const char* message) {
+  if (strcmp(message, "WHO") == 0) {
+    serialProtocol.sendDeviceName();
+  }
+  else if (strcmp(message, "PING") == 0) {
+    serialProtocol.sendAck("PONG");
+  }
+  else if (strncmp(message, "LED,", 4) == 0) {
+    processInput(message[4]);
+    serialProtocol.sendAck("LED");
+  }
+  else if (strlen(message) == 1) {
+    processInput(message[0]);
+    serialProtocol.sendAck("LED");
+  }
+  else {
+    serialProtocol.sendError("unknown_message");
+  }
+}
 
 void processInput(char c) {
   switch (c) {
-    case 'r': 
-      setColor(true, false, false);  
-      Serial.println("State: RED");   
+    case 'r':
+    case 'R':
+      setColor(true, false, false);
       break;
-    case 'g': 
-      setColor(false, true, false);  
-      Serial.println("State: GREEN"); 
+
+    case 'g':
+    case 'G':
+      setColor(false, true, false);
       break;
-    case 'b': 
-      setColor(false, false, true);  
-      Serial.println("State: BLUE");  
+
+    case 'b':
+    case 'B':
+      setColor(false, false, true);
       break;
-    case 'o': 
+
+    case 'w':
+    case 'W':
+      setColor(true, true, true);
+      break;
+
+    case 'o':
+    case 'O':
       allOff();
-      Serial.println("State: OFF"); 
       break;
+
     default:
-      // Ignore unknown characters without changing the LED state
+      serialProtocol.sendError("bad_led_command");
       break;
   }
 }
