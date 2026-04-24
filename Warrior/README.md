@@ -1,34 +1,37 @@
-🛡️ Warrior
+# 🛡️ Warrior
 
 Arduino firmware for the Wayne State Warrior1 robot competing in the
 Intelligent Ground Vehicle Competition (IGVC).
 
-🚀 Overview
+## 🚀 Overview
 
 This repository contains all microcontroller code used on the Warrior1 robot.
 It is structured to support:
 
-Modular hardware development
-Incremental testing on Arduino devices
-Clean separation between input, control, and output systems
-Simulation and testing from a PC using Python (no ROS required)
+- Modular hardware development
+- Incremental testing on Arduino devices
+- Clean separation between input, control, and output systems
+- Simulation and testing from a PC using Python (no ROS required)
 
-
-🧠 System Architecture
+## 🧠 System Architecture
 
 The firmware is organized into reusable libraries and thin Arduino sketches.
 
-Core Layers
+### Core Layers
+
+```
 RadioLink (Input)
-      ↓
+    ↓
 SerialProtocol (Communication)
-      ↓
+    ↓
 Control (PID, logic)
-      ↓
+    ↓
 MotorControl / LEDControl / FanControl (Outputs)
+```
 
-📁 Repository Structure
+## 📁 Repository Structure
 
+```
 Warrior/
 ├── README.md
 │
@@ -46,61 +49,66 @@ Warrior/
 │   └── tests/           # Isolated test sketches
 │
 └── Python/              # PC-side testing tools (no ROS required)
-🔧 Hardware Overview
-Controller: RadioLink T8S
-Receiver: RadioLink R8EF (PPM mode)
-MCUs: Arduino Nano ESP32 (or equivalent)
-Motor Controllers:
-Flipsky (drive motors)
-REV Spark MAX (steering motors)
+```
 
+## 🔧 Hardware Overview
 
-🧪 Test
+- **Controller:** RadioLink T8S
+- **Receiver:** RadioLink R8EF (PPM mode)
+- **MCUs:** Arduino Nano ESP32 (or equivalent)
+- **Motor Controllers:**
+  - Flipsky (drive motors)
+  - REV Spark MAX (steering motors)
+
+## 🧪 Testing
 
 Every subsystem is testable independently.
 
-Arduino Tests
+### Arduino Tests
 
-Located in:
-
-sketches/tests/
+Located in: `sketches/tests/`
 
 Examples:
+- `02_ppm_input_test` -> verify RC input
+- `03_serial_send_test` -> verify outgoing messages
+- `04_serial_receive_test` -> verify incoming commands
+- `05_motor_output_test` -> verify motor control
 
-02_ppm_input_test → verify RC input
-03_serial_send_test → verify outgoing messages
-04_serial_receive_test → verify incoming commands
-05_motor_output_test → verify motor control
-Python Tests
+### Python Tests
 
-Located in:
-
-Python/
+Located in: `Python/`
 
 Used to simulate:
-
-Controller input
-Motor feedback
-Serial communication
+- Controller input
+- Motor feedback
+- Serial communication
 
 Example:
 
+```bash
 python serial_send_mock.py
+```
 
-
-🔌 Serial Protocol
+## 🔌 Serial Protocol
 
 Communication between systems uses a simple framed ASCII protocol:
 
+```
 <MSGTYPE,data1,data2,...>
+```
 
-Examples:
+### Examples
 
+```
 <CTRL,12,-4,87,0,-100,0,100,35>
 <VEL,50,-30>
 <POS,90>
 <LED,1,0,1>
 <FBK,48,-29,91>
-< = start
-> = end
-Comma-separated values
+```
+
+### Format Details
+
+- `<` = start
+- `>` = end
+- Comma-separated values
