@@ -1,30 +1,20 @@
-#include <Arduino.h>
+#include <ESP32Servo.h>
 
-const int pwmInPin4 = 4;
-const int pwmInPin7 = 7;
+Servo motor;
 
-void setup()
-{
-    // Start serial at high speed for responsive logging
-    Serial.begin(115200);
+const int OUT_PIN = D7;
 
-    pinMode(pwmInPin4, INPUT);
-    pinMode(pwmInPin7, INPUT);
+void setup() {
+  Serial.begin(115200);
 
-    Serial.println("Listening for PWM on D4 and D7...");
+  motor.attach(OUT_PIN, 1000, 2000);
+
+  Serial.println("PWM output on D7");
 }
 
-void loop()
-{
-    unsigned long duration4 = pulseIn(pwmInPin4, HIGH, 30000);
-    unsigned long duration7 = pulseIn(pwmInPin7, HIGH, 30000);
+void loop() {
+  motor.writeMicroseconds(1500);  // neutral signal
 
-    Serial.print("D4: ");
-    Serial.print(duration4);
-    Serial.print(" us | D7: ");
-    Serial.print(duration7);
-    Serial.println(" us");
-
-    // Small delay to keep the Serial Monitor readable
-    delay(100);
+  Serial.println("Sending 1500us");
+  delay(1000);
 }

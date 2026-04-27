@@ -1,148 +1,101 @@
 #include <LiquidCrystal.h>
 #include <SerialProtocol.h>
 
-const char* DEVICE_NAME = "09_lcd_keypad";
-const bool USE_SERIAL_PROTOCOL = true;
+const char* DEVICE_NAME = "00_base";
 
 SerialProtocol serialProtocol(DEVICE_NAME);
-
-String serialLine = "";
 
 // LCD Keypad Shield pins: RS, Enable, D4, D5, D6, D7
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
-String lastButton = "NONE";
-unsigned long lastButtonSendMs = 0;
+// PWM state – microseconds, range 1000–2000, start at centre
+int currentSparkUs   = 1500;
+int currentFlipskyUs = 1500;
+
+#define PWM_MIN  1000
+#define PWM_MAX  2000
+#define PWM_STEP 10         // µs per tick while button held
+#define SEND_INTERVAL_MS 50 // 20 Hz send rate
+#define BUTTON_INTERVAL_MS 100 // step applied at most every 100 ms
 
 void setup() {
   serialProtocol.begin(115200);
 
   lcd.begin(16, 2);
   lcd.setCursor(0, 0);
-  lcd.print("Warrior LCD");
+  lcd.print("Warrior 00_base");
   lcd.setCursor(0, 1);
-  lcd.print("Serial Ready");
-
-  Serial.println("09_LCD_Keypad_Shield ready");
+  lcd.print("Ready");
 }
 
 void loop() {
-  readSerialInput();
-  updateButtons();
-}
-
-void readSerialInput() {
-  if (USE_SERIAL_PROTOCOL) {
-    serialProtocol.update();
-
-    if (serialProtocol.hasMessage()) {
-      handleSerialMessage(serialProtocol.getMessage());
-      serialProtocol.clearMessage();
+  // --- Button input (rate-limited to BUTTON_INTERVAL_MS) ---
+  static uint32_t lastButtonMs = 0;
+  if (millis() - lastButtonMs >= BUTTON_INTERVAL_MS) {
+    String button = readButtonName();
+    if (button != "NONE") {
+      lastButtonMs = millis();
+      if (button == "UP")    currentSparkUs   = constrain(currentSparkUs   + PWM_STEP, PWM_MIN, PWM_MAX);
+      if (button == "DOWN")  currentSparkUs   = constrain(currentSparkUs   - PWM_STEP, PWM_MIN, PWM_MAX);
+      if (button == "RIGHT") currentFlipskyUs = constrain(currentFlipskyUs + PWM_STEP, PWM_MIN, PWM_MAX);
+      if (button == "LEFT")  currentFlipskyUs = constrain(currentFlipskyUs - PWM_STEP, PWM_MIN, PWM_MAX);
     }
-  } else {
-    while (Serial.available() > 0) {
-      char c = Serial.read();
+  }
 
-      if (c == '\n' || c == '\r') {
-        if (serialLine.length() > 0) {
-          handleSerialMessage(serialLine.c_str());
-          serialLine = "";
-        }
-      } else {
-        serialLine += c;
-      }
-    }
+  // --- Send PWM to Python bridge at 20 Hz ---
+  static uint32_t lastSendMs = 0;
+  if (millis() - lastSendMs >= SEND_INTERVAL_MS) {
+    lastSendMs = millis();
+    sendPwmMessage(currentSparkUs, currentFlipskyUs);
+  }
+
+  // --- Update LCD every 100 ms ---
+  static uint32_t lastLcdMs = 0;
+  if (millis() - lastLcdMs >= 100) {
+    lastLcdMs = millis();
+    lcd.setCursor(0, 0);
+    lcd.print("SP:");
+    lcd.print(currentSparkUs);
+    lcd.print("            ");
+    lcd.setCursor(0, 1);
+    lcd.print("FL:");
+    lcd.print(currentFlipskyUs);
+    lcd.print("            ");
+  }
+
+  // --- Handle incoming serial messages (WHO, PING) ---
+  serialProtocol.update();
+  if (serialProtocol.hasMessage()) {
+    handleSerialMessage(serialProtocol.getMessage());
+    serialProtocol.clearMessage();
   }
 }
 
 void handleSerialMessage(const char* message) {
   if (strcmp(message, "WHO") == 0) {
     serialProtocol.sendDeviceName();
-  }
-  else if (strcmp(message, "PING") == 0) {
+  } else if (strcmp(message, "PING") == 0) {
     serialProtocol.sendAck("PONG");
-  }
-  else if (strncmp(message, "LCD,", 4) == 0) {
-    handleLcdMessage(message);
-  }
-  else if (strcmp(message, "CLEAR") == 0) {
-    lcd.clear();
-    serialProtocol.sendAck("CLEAR");
-  }
-  else {
+  } else {
     serialProtocol.sendError("unknown_message");
   }
 }
 
-void handleLcdMessage(const char* message) {
-  // Format:
-  // LCD,row,text
-  //
-  // Examples:
-  // <LCD,0,Hello>
-  // <LCD,1,Warrior>
-
-  int firstComma = findComma(message, 0);
-  int secondComma = findComma(message, firstComma + 1);
-
-  if (firstComma < 0 || secondComma < 0) {
-    serialProtocol.sendError("bad_lcd_message");
-    return;
-  }
-
-  int row = String(message).substring(firstComma + 1, secondComma).toInt();
-  String text = String(message).substring(secondComma + 1);
-
-  if (row < 0 || row > 1) {
-    serialProtocol.sendError("bad_lcd_row");
-    return;
-  }
-
-  lcd.setCursor(0, row);
-  lcd.print("                ");
-  lcd.setCursor(0, row);
-  lcd.print(text.substring(0, 16));
-
-  serialProtocol.sendAck("LCD");
-}
-
-void updateButtons() {
-  String button = readButtonName();
-
-  if (button != lastButton || millis() - lastButtonSendMs > 1000) {
-    lastButton = button;
-    lastButtonSendMs = millis();
-
-    Serial.print("<BTN,");
-    Serial.print(button);
-    Serial.println(">");
-  }
+void sendPwmMessage(int sparkUs, int flipskyUs) {
+  Serial.print("<PWM,");
+  Serial.print(sparkUs);
+  Serial.print(",");
+  Serial.print(flipskyUs);
+  Serial.println(">");
 }
 
 String readButtonName() {
   int x = analogRead(A0);
 
-  if (x < 60) {
-    return "RIGHT";
-  } else if (x < 200) {
-    return "UP";
-  } else if (x < 400) {
-    return "DOWN";
-  } else if (x < 600) {
-    return "LEFT";
-  } else if (x < 800) {
-    return "SELECT";
-  } else {
-    return "NONE";
-  }
-}
-
-int findComma(const char* message, int startIndex) {
-  for (int i = startIndex; message[i] != '\0'; i++) {
-    if (message[i] == ',') {
-      return i;
-    }
-  }
-
-  return -1;
+  if (x < 60)   return "RIGHT";
+  if (x < 200)  return "UP";
+  if (x < 400)  return "DOWN";
+  if (x < 600)  return "LEFT";
+  if (x < 800)  return "SELECT";
+  return "NONE";
 }
