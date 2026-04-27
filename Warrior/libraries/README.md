@@ -53,6 +53,7 @@ installed via the IDE's **Library Manager**:
 | Library | Required by | How to install |
 |---|---|---|
 | **Adafruit NeoPixel** | FanControl, LEDControl | Library Manager → search `Adafruit NeoPixel` → Install |
+| **ESP32Servo** | MotorControl | Library Manager → search `ESP32Servo` → Install |
 
 To open Library Manager: **Sketch → Include Library → Manage Libraries…**
 (or `Ctrl+Shift+I`).

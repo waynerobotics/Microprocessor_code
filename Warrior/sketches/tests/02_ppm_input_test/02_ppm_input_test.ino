@@ -102,12 +102,8 @@ void setup()
     // Use 'true' for SBUS inversion on Pin 12
     Serial1.begin(100000, SERIAL_8E2, SBUS_PIN, -1, true);
 
-    // Use GPIO numbers directly to avoid mapping errors
-    const int sparkGPIO = 9;    // This is D6
-    const int flipskyGPIO = 10; // This is D7
-
-    spark.attach(sparkGPIO, 1000, 2000);
-    flipsky.attach(flipskyGPIO, 1000, 2000);
+    spark.attach(SPARK_PIN, 1000, 2000);
+    flipsky.attach(FLIPSKY_PIN, 1000, 2000);
 
     Serial.println("System Online: SparkMax (GPIO 9) & Flipsky (GPIO 10)");
 }

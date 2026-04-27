@@ -85,17 +85,17 @@ void processInput(char c)
   {
   case 'r':
   case 'R':
-    setColor(true, false, false);
+    setPin(redPin, r);
     break;
 
   case 'g':
   case 'G':
-    setColor(false, true, false);
+    setPin(greenPin, g);
     break;
 
   case 'b':
   case 'B':
-    setColor(false, false, true);
+    setPin(bluePin, b);
     break;
 
   case 'w':
