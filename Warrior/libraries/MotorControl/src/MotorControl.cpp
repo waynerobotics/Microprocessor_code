@@ -1,55 +1,62 @@
 #include "MotorControl.h"
 
-MotorControl::MotorControl(uint8_t flipskyPin, uint8_t sparkMaxPin)
-  : _flipskyPin(flipskyPin),
-    _sparkMaxPin(sparkMaxPin) {}
+MotorControl::MotorControl(uint8_t sparkPin, uint8_t flipskyPin)
+  : _sparkPin(sparkPin),
+    _flipskyPin(flipskyPin) {}
 
 void MotorControl::begin() {
+  _spark.attach(_sparkPin,     REVERSE_US, FORWARD_US);
   _flipsky.attach(_flipskyPin, REVERSE_US, FORWARD_US);
-  _sparkMax.attach(_sparkMaxPin, REVERSE_US, FORWARD_US);
-
   stopAll();
 }
 
-void MotorControl::setDriveCommand(int command) {
-  _driveCommand = constrain(command, -100, 100);
-  _driveMicroseconds = commandToMicroseconds(_driveCommand);
+void MotorControl::setSparkCommand(int command) {
+  _sparkCommand = constrain(command, CMD_MIN, CMD_MAX);
+  _sparkMicroseconds = commandToMicroseconds(_sparkCommand);
+  _lastCommandMs = millis();
 }
 
-void MotorControl::setSteeringCommand(int command) {
-  _steeringCommand = constrain(command, -100, 100);
-  _steeringMicroseconds = commandToMicroseconds(_steeringCommand);
+void MotorControl::setFlipskyCommand(int command) {
+  _flipskyCommand = constrain(command, CMD_MIN, CMD_MAX);
+  _flipskyMicroseconds = commandToMicroseconds(_flipskyCommand);
+  _lastCommandMs = millis();
+}
+
+void MotorControl::setCommands(int sparkCommand, int flipskyCommand) {
+  _sparkCommand        = constrain(sparkCommand,   CMD_MIN, CMD_MAX);
+  _flipskyCommand      = constrain(flipskyCommand, CMD_MIN, CMD_MAX);
+  _sparkMicroseconds   = commandToMicroseconds(_sparkCommand);
+  _flipskyMicroseconds = commandToMicroseconds(_flipskyCommand);
+  _lastCommandMs = millis();
 }
 
 void MotorControl::stopAll() {
-  _driveCommand = 0;
-  _steeringCommand = 0;
-
-  _driveMicroseconds = STOP_US;
-  _steeringMicroseconds = STOP_US;
-
+  _sparkCommand        = 0;
+  _flipskyCommand      = 0;
+  _sparkMicroseconds   = STOP_US;
+  _flipskyMicroseconds = STOP_US;
+  _spark.writeMicroseconds(STOP_US);
   _flipsky.writeMicroseconds(STOP_US);
-  _sparkMax.writeMicroseconds(STOP_US);
 }
 
-void MotorControl::writeOutputs() {
-  _flipsky.writeMicroseconds(_driveMicroseconds);
-  _sparkMax.writeMicroseconds(_steeringMicroseconds);
+void MotorControl::update() {
+  if (millis() - _lastCommandMs > WATCHDOG_TIMEOUT_MS) {
+    _sparkMicroseconds   = STOP_US;
+    _flipskyMicroseconds = STOP_US;
+  }
+  _spark.writeMicroseconds(_sparkMicroseconds);
+  _flipsky.writeMicroseconds(_flipskyMicroseconds);
 }
 
-int MotorControl::getDriveMicroseconds() const {
-  return _driveMicroseconds;
-}
-
-int MotorControl::getSteeringMicroseconds() const {
-  return _steeringMicroseconds;
-}
+int MotorControl::getSparkCommand() const       { return _sparkCommand; }
+int MotorControl::getFlipskyCommand() const     { return _flipskyCommand; }
+int MotorControl::getSparkMicroseconds() const  { return _sparkMicroseconds; }
+int MotorControl::getFlipskyMicroseconds() const { return _flipskyMicroseconds; }
 
 int MotorControl::commandToMicroseconds(int command) {
-  command = constrain(command, -100, 100);
-
-  // -100 -> 1000 us
-  //    0 -> 1500 us
-  //  100 -> 2000 us
-  return map(command, -100, 100, REVERSE_US, FORWARD_US);
+  command = constrain(command, CMD_MIN, CMD_MAX);
+  // -100 -> REVERSE_US (1000)
+  //    0 -> STOP_US    (1500)
+  //  100 -> FORWARD_US (2000)
+  return map(command, CMD_MIN, CMD_MAX, REVERSE_US, FORWARD_US);
 }

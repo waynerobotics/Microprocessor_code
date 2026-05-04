@@ -1,10 +1,10 @@
 #include <Arduino.h>
-#include <ESP32Servo.h>
 #include <SerialProtocol.h>
+#include <MotorControl.h>
 
 // Running on Arduino Nano ESP32
 // Receives <MOT,spark,flipsky> from Python bridge (values are -100..100,
-// where -100 = 1000us, 0 = 1500us neutral, 100 = 2000us) and drives D6/D7.
+// where 0 = neutral) and drives D6/D7 via the MotorControl library.
 // IMPORTANT: use raw GPIO numbers, not D6/D7 aliases — ESP32Servo misbehaves with the aliases
 
 const char* DEVICE_NAME = "02_swerve";
@@ -12,32 +12,13 @@ const char* DEVICE_NAME = "02_swerve";
 const int sparkGPIO   = 9;   // = D6
 const int flipskyGPIO = 10;  // = D7
 
-const int CMD_MIN = -100;
-const int CMD_MAX =  100;
-const int PWM_MIN_US = 1000;
-const int PWM_NEUTRAL_US = 1500;
-const int PWM_MAX_US = 2000;
-
 SerialProtocol serialProtocol(DEVICE_NAME);
-
-Servo motor1; // spark
-Servo motor2; // flipsky
-
-unsigned long lastMotorMs = 0;
-
-int commandToMicroseconds(int cmd)
-{
-    cmd = constrain(cmd, CMD_MIN, CMD_MAX);
-    return map(cmd, CMD_MIN, CMD_MAX, PWM_MIN_US, PWM_MAX_US);
-}
+MotorControl motors(sparkGPIO, flipskyGPIO);
 
 void setup()
 {
     serialProtocol.begin(115200);
-    motor1.attach(sparkGPIO,   PWM_MIN_US, PWM_MAX_US);
-    motor2.attach(flipskyGPIO, PWM_MIN_US, PWM_MAX_US);
-    motor1.writeMicroseconds(PWM_NEUTRAL_US);
-    motor2.writeMicroseconds(PWM_NEUTRAL_US);
+    motors.begin();
 }
 
 void loop()
@@ -49,11 +30,9 @@ void loop()
         serialProtocol.clearMessage();
     }
 
-    // Safety: return to neutral if no motor command received for 500 ms
-    if (millis() - lastMotorMs > 500) {
-        motor1.writeMicroseconds(PWM_NEUTRAL_US);
-        motor2.writeMicroseconds(PWM_NEUTRAL_US);
-    }
+    // Applies the watchdog (return to neutral after WATCHDOG_TIMEOUT_MS without commands)
+    // and writes the current commanded microseconds to both ESCs.
+    motors.update();
 }
 
 void handleSerialMessage(const char* message)
@@ -74,10 +53,6 @@ void handleMotorMessage(const char* message)
     // Format: "MOT,spark,flipsky"  (values normalized -100..100)
     int spark = 0, flipsky = 0;
     sscanf(message, "MOT,%d,%d", &spark, &flipsky);
-
-    motor1.writeMicroseconds(commandToMicroseconds(spark));
-    motor2.writeMicroseconds(commandToMicroseconds(flipsky));
-
-    lastMotorMs = millis();
+    motors.setCommands(spark, flipsky);
     // No ACK sent — bridge does not read responses, sending would fill TX buffer and block
 }
