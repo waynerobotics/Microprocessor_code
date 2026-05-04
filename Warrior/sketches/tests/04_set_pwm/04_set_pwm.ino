@@ -3,8 +3,10 @@
 #include <MotorControl.h>
 
 // Running on Arduino Nano ESP32
-// Receives <MOT,spark,flipsky> from Python bridge (values are -100..100,
-// where 0 = neutral) and drives D6/D7 via the MotorControl library.
+// Receives <MOT,target,spark,flipsky> from Python bridge. Acts on the message
+// only if `target` matches DEVICE_NAME — other swerves' messages are ignored.
+// Values are normalized -100..100, where 0 = neutral. Drives D6/D7 via the
+// MotorControl library.
 // IMPORTANT: use raw GPIO numbers, not D6/D7 aliases — ESP32Servo misbehaves with the aliases
 
 const char* DEVICE_NAME = "02_swerve";
@@ -50,9 +52,16 @@ void handleSerialMessage(const char* message)
 
 void handleMotorMessage(const char* message)
 {
-    // Format: "MOT,spark,flipsky"  (values normalized -100..100)
+    // Format: "MOT,target,spark,flipsky"  (values normalized -100..100)
+    // Ignore commands not addressed to this device.
+    char target[24] = {0};
     int spark = 0, flipsky = 0;
-    sscanf(message, "MOT,%d,%d", &spark, &flipsky);
+    if (sscanf(message, "MOT,%23[^,],%d,%d", target, &spark, &flipsky) != 3) {
+        return;
+    }
+    if (strcmp(target, DEVICE_NAME) != 0) {
+        return;
+    }
     motors.setCommands(spark, flipsky);
     // No ACK sent — bridge does not read responses, sending would fill TX buffer and block
 }

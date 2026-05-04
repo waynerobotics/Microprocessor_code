@@ -47,6 +47,8 @@ sketch you open.
 
 ### Step 2 — Install External Dependencies
 
+These should be included with local as they are in the github
+
 Some libraries in this project depend on third-party packages that must be
 installed via the IDE's **Library Manager**:
 

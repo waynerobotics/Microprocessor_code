@@ -11,7 +11,14 @@ RadioLink::RadioLink(HardwareSerial& serial, uint8_t rxPin)
 
 void RadioLink::begin() {
   // SBUS protocol: 100000 baud, 8 data, even parity, 2 stop bits, inverted.
+#if defined(ESP32) || defined(ESP_PLATFORM)
   _serial.begin(100000, SERIAL_8E2, _rxPin, -1, true);
+#else
+  // AVR / classic Arduino: HardwareSerial::begin can't pick a pin or invert
+  // the line. The board needs a hardware inverter on its dedicated RX pin.
+  (void)_rxPin;
+  _serial.begin(100000, SERIAL_8E2);
+#endif
 }
 
 void RadioLink::update() {
