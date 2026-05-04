@@ -13,11 +13,11 @@ Two Arduinos, one PC bridge.
 
 ```
 ┌──────────────────┐    USB     ┌─────────────────┐    USB    ┌──────────────────┐
-│ 00_base          │  <PWM,…>   │ serial_bridge   │  <PWM,…>  │ 02_swerve        │
+│ 00_base          │  <MOT,…>   │ serial_bridge   │  <MOT,…>  │ 02_swerve        │
 │ Mega + LCD/keypad│ ─────────> │  (this code)    │ ────────> │ Nano ESP32       │
 │ 09_LCD_Keypad    │            │                 │           │ 04_set_pwm       │
-│ generates PWM    │            │                 │           │ outputs PWM      │
-│ commands @20 Hz  │            │                 │           │ on D6/D7         │
+│ generates motor  │            │                 │           │ maps to PWM,     │
+│ cmds @20 Hz      │            │                 │           │ outputs on D6/D7 │
 └──────────────────┘            └─────────────────┘           └──────────────────┘
 ```
 
@@ -46,11 +46,11 @@ format. Known types:
 | ---------------- | ---------------------------------------- | --------------------------------------------- |
 | host → device    | `<WHO>`                                  | Ask device to identify itself                 |
 | host → device    | `<PING>`                                 | Liveness probe                                |
-| host → 02_swerve | `<PWM,spark,flipsky>`                    | Set motor command, normalized -100..100       |
+| host → 02_swerve | `<MOT,spark,flipsky>`                    | Set motor command, normalized -100..100       |
 | device → host    | `<NAME,name>`                            | Reply to WHO                                  |
 | device → host    | `<ACK,type>`                             | Generic ack (e.g. `<ACK,PONG>` for PING)      |
 | device → host    | `<ERR,reason>`                           | Error                                         |
-| 00_base → host   | `<PWM,spark,flipsky>`                    | Generated PWM command (forwarded to 02_swerve)|
+| 00_base → host   | `<MOT,spark,flipsky>`                    | Generated motor command (forwarded to 02_swerve)|
 | reserved         | `<CTRL,ail,ele,thr,rud,swA,btn,swB,knob>`| Controller state                              |
 | reserved         | `<FBK,driveVel,steerVel,steerPos>`       | Motor feedback                                |
 
@@ -61,8 +61,8 @@ Devices identify themselves with stable string names:
 
 Names are constants at the top of each `.ino` (`const char* DEVICE_NAME = …;`).
 
-Safety: `02_swerve` returns motors to neutral (1500 µs) if no `<PWM,…>` is
-received for 500 ms. Whatever produces PWM commands MUST send at ≥ 2 Hz.
+Safety: `02_swerve` returns motors to neutral (1500 µs) if no `<MOT,…>` is
+received for 500 ms. Whatever produces motor commands MUST send at ≥ 2 Hz.
 
 ---
 
@@ -131,7 +131,7 @@ not an exit. Stop with Ctrl+C.
 - Both `00_base` and `02_swerve` may stream messages continuously. The
   `query_device_name` helper sends `<WHO>` and then **filters** for `<NAME,…>`
   — it ignores other messages until the deadline. Don't go back to "trust the
-  first byte" or you'll mistake a stray `<PWM,…>` for the device name.
+  first byte" or you'll mistake a stray `<MOT,…>` for the device name.
 - On Linux the `dialout` group requirement is the #1 footgun.
 
 ---
@@ -172,11 +172,13 @@ wire protocol.
 
 Two Arduino-family microcontrollers connected via USB to a Linux host:
 
-1. **`00_base`** — Arduino Mega 2560 with an LCD Keypad Shield. Generates PWM
-   commands at 20 Hz and streams them as `<PWM,spark,flipsky>` over USB
-   serial. Spark and flipsky are pulse widths in microseconds (1000–2000).
-2. **`02_swerve`** — Arduino Nano ESP32. Reads `<PWM,spark,flipsky>` over
-   serial and outputs RC PWM on GPIO 9 (D6, "spark") and GPIO 10 (D7,
+1. **`00_base`** — Arduino Mega 2560 with an LCD Keypad Shield. Generates
+   motor commands at 20 Hz and streams them as `<MOT,spark,flipsky>` over USB
+   serial. Spark and flipsky are normalized integer commands in -100..100,
+   where 0 = neutral.
+2. **`02_swerve`** — Arduino Nano ESP32. Reads `<MOT,spark,flipsky>` over
+   serial (values normalized -100..100, where 0 = neutral). Maps to RC PWM
+   1000–2000 µs and outputs on GPIO 9 (D6, "spark") and GPIO 10 (D7,
    "flipsky") via the ESP32Servo library. Has a 500 ms safety watchdog —
    returns to 1500 µs neutral if no message arrives in time.
 
@@ -189,11 +191,11 @@ Both devices use the same line-based ASCII framing. Every message is
 | ---------------- | -------------------------------- | -------------------------------- |
 | host → device    | `<WHO>`                          | Ask device to identify itself    |
 | host → device    | `<PING>`                         | Liveness probe                   |
-| host → 02_swerve | `<PWM,spark,flipsky>`            | Motor command, normalized -100..100 |
+| host → 02_swerve | `<MOT,spark,flipsky>`            | Motor command, normalized -100..100 |
 | device → host    | `<NAME,name>`                    | Reply to WHO                     |
 | device → host    | `<ACK,type>`                     | Acknowledgement                  |
 | device → host    | `<ERR,reason>`                   | Error                            |
-| 00_base → host   | `<PWM,spark,flipsky>`            | Outgoing PWM command stream      |
+| 00_base → host   | `<MOT,spark,flipsky>`            | Outgoing motor command stream    |
 
 Discovery: send `<WHO>`, read messages until `<NAME,xxx>` appears (filtering
 out other traffic), match against expected name. Both `00_base` and
@@ -205,10 +207,10 @@ out other traffic), match against expected name. Both `00_base` and
   Wait 2 s after open before sending. This is non-negotiable.
 - **Linux permissions**: include setup docs for `sudo usermod -aG dialout
   $USER`.
-- **Continuous streams**: `00_base` streams `<PWM,…>` at 20 Hz. The discovery
+- **Continuous streams**: `00_base` streams `<MOT,…>` at 20 Hz. The discovery
   helper must skip these and look only for `<NAME,…>` replies.
-- **Watchdog**: any node publishing PWM commands must send at ≥ 2 Hz, or the
-  ESP32 will fail-safe to 1500 µs. This is a feature — preserve it.
+- **Watchdog**: any node publishing motor commands must send at ≥ 2 Hz, or
+  the ESP32 will fail-safe to 1500 µs. This is a feature — preserve it.
 - **Reconnect**: USB drops should not crash nodes. Re-discover and reconnect.
 - **No backwards compat shims**: this is a fresh ROS 2 package. Don't carry
   over the old `serial_bridge.py` structure.
@@ -220,24 +222,28 @@ Two driver nodes; the Python "bridge" concept goes away:
 ```
 ┌─────────────────────────┐                ┌──────────────────────────┐
 │ warrior_base_driver     │  topic:        │ warrior_swerve_driver    │
-│ - opens 00_base by name │  /pwm_cmd      │ - opens 02_swerve by name│
-│ - parses incoming       │  ───────────>  │ - subscribes /pwm_cmd    │
-│   <PWM,…> from device   │  warrior_msgs/ │ - sends <PWM,…> to device│
-│ - publishes /pwm_cmd    │  PwmCommand    │                          │
+│ - opens 00_base by name │  /motor_cmd    │ - opens 02_swerve by name│
+│ - parses incoming       │  ───────────>  │ - subscribes /motor_cmd  │
+│   <MOT,…> from device   │  warrior_msgs/ │ - sends <MOT,…> to device│
+│ - publishes /motor_cmd  │  MotorCommand  │                          │
 └─────────────────────────┘                └──────────────────────────┘
 ```
 
-Decoupling via the `/pwm_cmd` topic means future input sources (SBUS, Xbox
+Decoupling via the `/motor_cmd` topic means future input sources (SBUS, Xbox
 controller, autonomy stack) can publish to the same topic without touching
 the swerve driver.
 
 Custom message recommendation:
 
 ```
-# warrior_msgs/msg/PwmCommand.msg
-uint16 spark_us     # 1000-2000
-uint16 flipsky_us   # 1000-2000
+# warrior_msgs/msg/MotorCommand.msg
+int8 spark      # -100..100, 0 = neutral
+int8 flipsky    # -100..100, 0 = neutral
 ```
+
+The microsecond mapping (`-100..100 -> 1000..2000 µs`) lives in the firmware
+on `02_swerve`, not in the ROS 2 layer. Keep it that way — it lets you
+re-calibrate ESC ranges in firmware without touching the control stack.
 
 ### ROS 2 parameters per node
 
@@ -262,11 +268,11 @@ uint16 flipsky_us   # 1000-2000
 - `pytest` for the framing/parser logic — port over the existing
   `test_serial_protocol.py` style.
 - A "loopback" test that runs both nodes against `pyserial`'s loopback or a
-  null-modem pipe, asserting that publishing on `/pwm_cmd` produces the
+  null-modem pipe, asserting that publishing on `/motor_cmd` produces the
   expected bytes on the swerve serial port.
-- Manual integration test with real hardware: `ros2 topic pub /pwm_cmd
-  warrior_msgs/msg/PwmCommand "{spark_us: 1500, flipsky_us: 1500}"` and
-  observe motor behaviour.
+- Manual integration test with real hardware: `ros2 topic pub /motor_cmd
+  warrior_msgs/msg/MotorCommand "{spark: 0, flipsky: 0}"` and observe motor
+  behaviour.
 
 ### Reference implementation in the legacy repo
 

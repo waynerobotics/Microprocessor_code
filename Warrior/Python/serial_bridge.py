@@ -1,7 +1,7 @@
 """
 serial_bridge.py
 
-Reads <PWM,spark,flipsky> messages from the 00_base Arduino (LCD Keypad Shield)
+Reads <MOT,spark,flipsky> messages from the 00_base Arduino (LCD Keypad Shield)
 and forwards them to the 02_swerve Arduino (PWM output).
 
 Runs forever — if either Arduino is unplugged or rebooted, the bridge
@@ -111,7 +111,7 @@ def safe_close(conn: WarriorSerial) -> None:
 
 
 def run_bridge(base: WarriorSerial, swerve: WarriorSerial) -> None:
-    """Forward PWM messages from base to swerve. Raises on disconnect."""
+    """Forward motor command messages from base to swerve. Raises on disconnect."""
     forwarded = 0
     last_log_time = 0.0
     LOG_INTERVAL_S = 2.0
@@ -122,8 +122,8 @@ def run_bridge(base: WarriorSerial, swerve: WarriorSerial) -> None:
             continue
 
         parts = msg.split(",")
-        if parts[0] != "PWM" or len(parts) != 3:
-            print(f"  [skip] non-PWM message from 00_base: <{msg}>")
+        if parts[0] != "MOT" or len(parts) != 3:
+            print(f"  [skip] non-MOT message from 00_base: <{msg}>")
             continue
 
         swerve.send_message(parts[0], parts[1], parts[2])
@@ -132,7 +132,8 @@ def run_bridge(base: WarriorSerial, swerve: WarriorSerial) -> None:
         now = time.time()
         if now - last_log_time >= LOG_INTERVAL_S:
             last_log_time = now
-            print(f"[{forwarded:6d}] 00_base -> 02_swerve: <{msg}>")
+            spark, flipsky = parts[1], parts[2]
+            print(f"[{forwarded:6d}] 00_base -> 02_swerve: spark={spark:>4}  flipsky={flipsky:>4}")
 
 
 def main() -> None:
