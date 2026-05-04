@@ -2,28 +2,45 @@
 #pragma once
 #include <Arduino.h>
 
+// Reads an SBUS frame stream from a HardwareSerial port and exposes the
+// 8 main channels as a ControllerState with semantic names (aileron,
+// elevator, throttle, rudder, switchA/B, buttonVRB, knobVRA).
+//
+// Stick channels are mapped to a normalized -100..100 with a deadband
+// applied around center. Calibration is per-channel — measure the actual
+// min/center/max your transmitter sends and call setChannelCalibration()
+// in setup().
+//
+// Usage:
+//   RadioLink radio(Serial1, SBUS_RX_PIN);
+//   radio.begin();
+//   radio.setChannelCalibration(1, 200, 822, 1598);  // elevator
+//   ...
+//   void loop() {
+//     radio.update();                     // pulls bytes from UART
+//     auto state = radio.getState();
+//     if (state.valid) { ... }
+//   }
+//
+// Designed for the Arduino Nano ESP32 (SBUS Serial requires SERIAL_8E2
+// + inverted, which is ESP32 HardwareSerial syntax).
+
 class RadioLink {
 public:
   static const uint8_t MAX_CHANNELS = 8;
 
-  struct Frame {
-    uint16_t PPMReceived[MAX_CHANNELS];
-    int16_t mapped[MAX_CHANNELS];
-    uint8_t channelCount;
-    bool valid;
-  };
-
   struct ControllerState {
+    // Stick channels mapped to -100..100 (with deadband around 0)
     int16_t aileron;
     int16_t elevator;
     int16_t throttle;
     int16_t rudder;
-
     int16_t switchA;
     int16_t switchB;
-    bool buttonVRB;
     int16_t knobVRA;
+    bool    buttonVRB;
 
+    // Raw SBUS channel values (0..2047)
     uint16_t rawAileron;
     uint16_t rawElevator;
     uint16_t rawThrottle;
@@ -33,50 +50,55 @@ public:
     uint16_t rawSwitchB;
     uint16_t rawKnobVRA;
 
-    bool valid;
+    bool valid;  // false if no recent frame, frame_lost, or failsafe active
   };
 
-  // Constructor takes the pin number where the PPM signal is connected
-  RadioLink(uint8_t pin);
+  RadioLink(HardwareSerial& serial, uint8_t rxPin);
 
-  // Initializes the radio link and starts listening for signals
-  void begin();
+  void begin();   // initializes the SBUS UART
+  void update();  // call every loop() — drains the UART, parses frames
+  ControllerState getState();
 
-  // Reads the latest frame of PPM data and returns it as a Frame struct
-  Frame readFrame();
+  // Override calibration for a specific channel. Without this, the standard
+  // 11-bit SBUS range (172, 992, 1811) is used.
+  void setChannelCalibration(uint8_t channel, uint16_t min, uint16_t center, uint16_t max);
 
-  // Converts the raw PPM data into a more user-friendly ControllerState struct
-  ControllerState readControllerState();
-
-  // Prints the controller state to the serial monitor for debugging
+  // Helpers
   void printControllerState(const ControllerState& state);
-
-  // getter function for deadman state
   bool deadmanActive(const ControllerState& state);
-  // getter function for throttle
-  uint16_t getThrottleMicroseconds(const ControllerState& state);
-  // getter function for speed control (knobVRA)
-  uint16_t getSpeedControlMicroseconds(const ControllerState& state);
+
+  // SBUS defaults
+  static const uint16_t SBUS_DEFAULT_MIN    = 172;
+  static const uint16_t SBUS_DEFAULT_CENTER = 992;
+  static const uint16_t SBUS_DEFAULT_MAX    = 1811;
+  static const uint16_t DEADBAND            = 5;     // SBUS counts
+  static const unsigned long FRAME_TIMEOUT_MS = 100; // mark invalid if no frame in this window
 
 private:
-  uint8_t _pin;
+  struct ChannelCalibration {
+    uint16_t min;
+    uint16_t center;
+    uint16_t max;
+  };
 
-  // Singleton instance for interrupt handling
-  static RadioLink* _instance;
-  // Interrupt handler needs to be static, so we use a singleton pattern
-  static void handleInterruptStatic();
+  HardwareSerial& _serial;
+  uint8_t _rxPin;
 
-  // Minimal class to handle interrupts as fast as possible
-  void handleInterrupt();
+  static const uint8_t SBUS_FRAME_SIZE   = 25;
+  static const uint8_t SBUS_HEADER_BYTE  = 0x0F;
+  static const uint8_t SBUS_FOOTER_BYTE  = 0x00;
+  static const uint8_t SBUS_FLAG_FRAME_LOST = 0x04;
+  static const uint8_t SBUS_FLAG_FAILSAFE   = 0x08;
 
-  volatile uint16_t _channels[MAX_CHANNELS];
-  volatile uint8_t _currentChannel = 0;
-  volatile bool _frameReady = false;
-  volatile uint32_t _lastRiseMicros = 0;
+  uint8_t  _frame[SBUS_FRAME_SIZE];
+  uint8_t  _framePos = 0;
+  uint16_t _channels[MAX_CHANNELS];
+  ChannelCalibration _calibrations[MAX_CHANNELS];
 
-  static const uint16_t SYNC_GAP_US = 3000;
-  static const uint16_t MIN_PULSE_US = 800;
-  static const uint16_t MAX_PULSE_US = 2200;
+  unsigned long _lastFrameMs = 0;
+  bool _failsafeActive = false;
+  bool _frameLost      = false;
 
-  int16_t mapPulse(uint16_t pulse);
+  // Apply deadband + per-channel calibration → -100..100
+  int16_t mapToCommand(uint8_t channel) const;
 };

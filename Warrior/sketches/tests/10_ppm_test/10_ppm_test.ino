@@ -1,113 +1,66 @@
 #include <Arduino.h>
-#include <ESP32Servo.h>
+#include <RadioLink.h>
+#include <MotorControl.h>
 
-// --- Configuration ---
-#define SBUS_PIN 12
-#define SPARK_PIN D6   // SparkMax ESC PWM output
-#define FLIPSKY_PIN D7 // Flipsky ESC PWM output
+// Running on Arduino Nano ESP32
+// Reads SBUS from a RadioLink R8EF (or compatible) on Serial1, maps the
+// elevator/rudder sticks to -100..100 via RadioLink (with deadband and
+// per-channel calibration), and drives D6/D7 ESC outputs via MotorControl.
+//
+// IMPORTANT: use raw GPIO numbers, not D6/D7 aliases — ESP32Servo misbehaves with the aliases
 
-#define SBUS_NUM_CHANNELS 8
-#define DEADBAND 5
+const uint8_t SBUS_RX_PIN  = 12;
+const uint8_t SPARK_GPIO   = 9;   // = D6  (SparkMax steering ESC)
+const uint8_t FLIPSKY_GPIO = 10;  // = D7  (Flipsky drive ESC)
 
-// --- Global Variables ---
-uint16_t sbusChannels[SBUS_NUM_CHANNELS];
-uint8_t sbusFrame[25];
-uint8_t sbusFramePos = 0;
+RadioLink    radio(Serial1, SBUS_RX_PIN);
+MotorControl motors(SPARK_GPIO, FLIPSKY_GPIO);
 
-Servo spark;
-Servo flipsky;
-
-// --- Main Execution Loop ---
-void loop()
-{
-    // Read SBUS first
-    sbusRead();
-
-    // Map and write PWM immediately
-    int sparkPWM = mapWithDeadband(sbusChannels[1], 200, 822, 1598, DEADBAND);
-    int flipskyPWM = mapWithDeadband(sbusChannels[3], 314, 1084, 1800, DEADBAND);
-
-    spark.writeMicroseconds(sparkPWM);
-    flipsky.writeMicroseconds(flipskyPWM);
-
-    // Non-blocking serial print (every 100ms)
-    static uint32_t lastPrint = 0;
-    if (millis() - lastPrint >= 100)
-    {
-        lastPrint = millis();
-        Serial.print("Spark (ELE): ");
-        Serial.print(sparkPWM);
-        Serial.print(" | Flipsky (RUD): ");
-        Serial.println(flipskyPWM);
-    }
-}
-
-// --- Helper Functions ---
-
-void sbusRead()
-{
-    // Process at most one full frame worth of bytes per call to stay non-blocking
-    // Flush all but the last 25 bytes so we always parse the freshest frame
-    while (Serial1.available() > 25)
-        Serial1.read();
-
-    // Now read exactly up to 25 bytes
-    while (Serial1.available())
-    {
-        uint8_t b = Serial1.read();
-        if (sbusFramePos == 0 && b != 0x0F)
-            continue;
-        sbusFrame[sbusFramePos++] = b;
-
-        if (sbusFramePos == 25)
-        {
-            if (sbusFrame[24] == 0x00)
-            {
-                sbusChannels[0] = ((sbusFrame[1] | sbusFrame[2] << 8) & 0x07FF);
-                sbusChannels[1] = ((sbusFrame[2] >> 3 | sbusFrame[3] << 5) & 0x07FF);
-                sbusChannels[2] = ((sbusFrame[3] >> 6 | sbusFrame[4] << 2 | sbusFrame[5] << 10) & 0x07FF);
-                sbusChannels[3] = ((sbusFrame[5] >> 1 | sbusFrame[6] << 7) & 0x07FF);
-                sbusChannels[4] = ((sbusFrame[6] >> 4 | sbusFrame[7] << 4) & 0x07FF);
-                sbusChannels[5] = ((sbusFrame[7] >> 7 | sbusFrame[8] << 1 | sbusFrame[9] << 9) & 0x07FF);
-                sbusChannels[6] = ((sbusFrame[9] >> 2 | sbusFrame[10] << 6) & 0x07FF);
-                sbusChannels[7] = ((sbusFrame[10] >> 5 | sbusFrame[11] << 3) & 0x07FF);
-            }
-            sbusFramePos = 0;
-        }
-    }
-}
-
-int mapWithDeadband(int val, int minIn, int centerIn, int maxIn, int deadband)
-{
-    // If value is within the deadband range, return 1500 (neutral)
-    if (val >= (centerIn - deadband) && val <= (centerIn + deadband))
-    {
-        return 1500;
-    }
-
-    // Piecewise mapping for accurate center-to-edge travel
-    if (val < centerIn)
-    {
-        return map(val, minIn, centerIn, 1000, 1500);
-    }
-    else
-    {
-        return map(val, centerIn, maxIn, 1500, 2000);
-    }
-}
+// --- Forward declarations ---
+void radioToMotors();
 
 void setup()
 {
     Serial.begin(115200);
-    // Use 'true' for SBUS inversion on Pin 12
-    Serial1.begin(100000, SERIAL_8E2, SBUS_PIN, -1, true);
+    radio.begin();
+    motors.begin();
 
-    // Use GPIO numbers directly to avoid mapping errors
-    const int sparkGPIO = 9;    // This is D6
-    const int flipskyGPIO = 10; // This is D7
+    // Calibration values measured from the actual transmitter sticks.
+    // (channel index, raw min, raw center, raw max)
+    radio.setChannelCalibration(1,  200,  822, 1598);  // CH2 elevator -> spark
+    radio.setChannelCalibration(3,  314, 1084, 1800);  // CH4 rudder   -> flipsky
 
-    spark.attach(sparkGPIO, 1000, 2000);
-    flipsky.attach(flipskyGPIO, 1000, 2000);
+    Serial.println("System Online: SparkMax (D6) + Flipsky (D7)");
+}
 
-    Serial.println("System Online: SparkMax (GPIO 9) & Flipsky (GPIO 10)");
+void loop()
+{
+    radioToMotors();
+    motors.update();
+
+    // Status print at 10 Hz
+    static uint32_t lastPrint = 0;
+    if (millis() - lastPrint >= 100) {
+        lastPrint = millis();
+        RadioLink::ControllerState state = radio.getState();
+        Serial.print(state.valid ? "[OK] " : "[INVALID] ");
+        Serial.print("elev=");    Serial.print(state.elevator);
+        Serial.print(" -> spark="); Serial.print(motors.getSparkMicroseconds());
+        Serial.print("us | rud="); Serial.print(state.rudder);
+        Serial.print(" -> flipsky="); Serial.print(motors.getFlipskyMicroseconds());
+        Serial.println("us");
+    }
+}
+
+// Reads the latest SBUS frame, maps elevator/rudder to -100..100 via RadioLink
+// (deadband + per-channel calibration applied internally), and forwards to
+// MotorControl. If the radio frame is invalid (failsafe, frame loss, stale),
+// no command is sent — MotorControl's watchdog will return motors to neutral.
+void radioToMotors()
+{
+    radio.update();
+    RadioLink::ControllerState state = radio.getState();
+    if (state.valid) {
+        motors.setCommands(state.elevator, state.rudder);
+    }
 }
