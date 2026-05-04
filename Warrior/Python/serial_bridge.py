@@ -4,6 +4,9 @@ serial_bridge.py
 Reads <PWM,spark,flipsky> messages from the 00_base Arduino (LCD Keypad Shield)
 and forwards them to the 02_swerve Arduino (PWM output).
 
+Runs forever — if either Arduino is unplugged or rebooted, the bridge
+re-discovers and reconnects automatically. Press Ctrl+C to stop.
+
 Usage:
     python serial_bridge.py                        # auto-discover both ports
     python serial_bridge.py --base COM5 --swerve COM7   # manual override
@@ -19,6 +22,7 @@ from serial_protocol import WarriorSerial, query_device_name
 BAUDRATE = 115200
 QUERY_TIMEOUT = 3.0
 READ_TIMEOUT  = 0.1
+RETRY_DELAY_S = 2.0
 
 
 def scan_ports() -> None:
@@ -37,18 +41,98 @@ def scan_ports() -> None:
             print(f"<error: {exc}>")
 
 
-def find_port(device_name: str) -> str:
-    """Auto-discover a port by querying every available COM port."""
+def find_port_once(device_name: str, verbose: bool) -> str | None:
+    """Scan every COM port once. Return the matching port name, or None."""
     for p in list_ports.comports():
-        print(f"  Querying {p.device} ({p.description})...", end=" ", flush=True)
+        if verbose:
+            print(f"  Querying {p.device} ({p.description})...", end=" ", flush=True)
         try:
             name = query_device_name(p.device, BAUDRATE, timeout=QUERY_TIMEOUT)
-            print(name if name else "<no response>")
+            if verbose:
+                print(name if name else "<no response>")
             if name and name.strip() == device_name:
                 return p.device
         except Exception as exc:
-            print(f"<error: {exc}>")
-    raise RuntimeError(f"Arduino '{device_name}' not found on any port")
+            if verbose:
+                print(f"<error: {exc}>")
+    return None
+
+
+def find_port_blocking(device_name: str) -> str:
+    """Scan ports repeatedly until the named device is found."""
+    print(f"Looking for DEVICE_NAME=\"{device_name}\"...")
+    verbose = True
+    while True:
+        port = find_port_once(device_name, verbose=verbose)
+        if port is not None:
+            print(f"  FOUND DEVICE_NAME=\"{device_name}\" on {port}")
+            return port
+        if verbose:
+            print(f"  {device_name} not found; will keep retrying every {RETRY_DELAY_S:.0f}s "
+                  "(close any open Serial Monitors)")
+            verbose = False
+        time.sleep(RETRY_DELAY_S)
+
+
+def open_blocking(conn: WarriorSerial, label: str, port: str) -> None:
+    """Open a serial port, retrying forever on permission/access errors."""
+    first = True
+    while True:
+        try:
+            conn.open()
+            print(f"  Connected: {label} on {port}")
+            return
+        except Exception as exc:
+            if first:
+                print(f"  Waiting for {label} on {port}: {exc}")
+                first = False
+            time.sleep(RETRY_DELAY_S)
+
+
+def discover_and_open(base_port_arg: str | None,
+                      swerve_port_arg: str | None) -> tuple[WarriorSerial, WarriorSerial, str, str]:
+    """Resolve both ports (auto-discover or manual) and open them. Blocks until ready."""
+    base_port   = base_port_arg   or find_port_blocking("00_base")
+    swerve_port = swerve_port_arg or find_port_blocking("02_swerve")
+
+    base   = WarriorSerial(base_port,   BAUDRATE, timeout=READ_TIMEOUT)
+    swerve = WarriorSerial(swerve_port, BAUDRATE, timeout=READ_TIMEOUT)
+
+    open_blocking(base,   "00_base",   base_port)
+    open_blocking(swerve, "02_swerve", swerve_port)
+    return base, swerve, base_port, swerve_port
+
+
+def safe_close(conn: WarriorSerial) -> None:
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def run_bridge(base: WarriorSerial, swerve: WarriorSerial) -> None:
+    """Forward PWM messages from base to swerve. Raises on disconnect."""
+    forwarded = 0
+    last_log_time = 0.0
+    LOG_INTERVAL_S = 2.0
+
+    while True:
+        msg = base.read_message(timeout=READ_TIMEOUT)
+        if msg is None:
+            continue
+
+        parts = msg.split(",")
+        if parts[0] != "PWM" or len(parts) != 3:
+            print(f"  [skip] non-PWM message from 00_base: <{msg}>")
+            continue
+
+        swerve.send_message(parts[0], parts[1], parts[2])
+        forwarded += 1
+
+        now = time.time()
+        if now - last_log_time >= LOG_INTERVAL_S:
+            last_log_time = now
+            print(f"[{forwarded:6d}] 00_base -> 02_swerve: <{msg}>")
 
 
 def main() -> None:
@@ -62,77 +146,19 @@ def main() -> None:
         scan_ports()
         return
 
-    if args.base and args.swerve:
-        base_port   = args.base
-        swerve_port = args.swerve
-        print(f"Using manual ports: base={base_port}  swerve={swerve_port}")
-    else:
-        print("Auto-discovering Arduino devices...")
-        base_port   = args.base   or find_port("00_base")
-        swerve_port = args.swerve or find_port("02_swerve")
-
-    print(f"  00_base   → {base_port}")
-    print(f"  02_swerve → {swerve_port}")
-
-    forwarded = 0
-    last_status_time = time.time()
-
-    base   = WarriorSerial(base_port,   BAUDRATE, timeout=READ_TIMEOUT)
-    swerve = WarriorSerial(swerve_port, BAUDRATE, timeout=READ_TIMEOUT)
-
-    def open_both() -> None:
-        for label, conn, port in (("00_base", base, base_port), ("02_swerve", swerve, swerve_port)):
-            while True:
-                try:
-                    conn.open()
-                    print(f"  Connected: {label} on {port}")
-                    break
-                except Exception as exc:
-                    print(f"  Waiting for {label} on {port}: {exc}")
-                    time.sleep(2.0)
-
-    open_both()
-    print(f"\nBridge running: {base_port} → {swerve_port}")
     print("Press Ctrl+C to stop.\n")
 
     while True:
+        base, swerve, base_port, swerve_port = discover_and_open(args.base, args.swerve)
+        print(f"\nBridge running: {base_port} → {swerve_port}\n")
         try:
-            msg = base.read_message(timeout=READ_TIMEOUT)
+            run_bridge(base, swerve)
         except Exception as exc:
             print(f"\n[DISCONNECT] {exc}")
-            try:
-                base.close()
-            except Exception:
-                pass
-            try:
-                swerve.close()
-            except Exception:
-                pass
-            print("Reconnecting...")
-            open_both()
-            print("Reconnected.\n")
-            continue
-
-        if msg is None:
-            continue
-
-        parts = msg.split(",")
-
-        if parts[0] != "PWM" or len(parts) != 3:
-            continue
-
-        try:
-            swerve.send_message(parts[0], parts[1], parts[2])
-        except Exception as exc:
-            print(f"\n[SWERVE ERROR] {exc}")
-            continue
-
-        forwarded += 1
-
-        now = time.time()
-        if now - last_status_time >= 1.0:
-            last_status_time = now
-            print(f"[{forwarded:6d}] spark={parts[1]} us  flipsky={parts[2]} us")
+            safe_close(base)
+            safe_close(swerve)
+            print("Re-discovering...\n")
+            time.sleep(RETRY_DELAY_S)
 
 
 if __name__ == "__main__":
@@ -140,5 +166,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nBridge stopped.")
-    except RuntimeError as exc:
-        print(f"ERROR: {exc}")

@@ -1,22 +1,28 @@
+#include <Arduino.h>
 #include <ESP32Servo.h>
 #include <SerialProtocol.h>
 
+// Running on Arduino Nano ESP32
+// Receives <PWM,spark,flipsky> from Python bridge and drives D6/D7
+// IMPORTANT: use raw GPIO numbers, not D6/D7 aliases — ESP32Servo misbehaves with the aliases
+
 const char* DEVICE_NAME = "02_swerve";
+
+const int sparkGPIO   = 9;   // = D6
+const int flipskyGPIO = 10;  // = D7
 
 SerialProtocol serialProtocol(DEVICE_NAME);
 
-Servo motor1;
-Servo motor2;
+Servo motor1; // spark
+Servo motor2; // flipsky
 
 unsigned long lastPwmMs = 0;
 
 void setup()
 {
     serialProtocol.begin(115200);
-    // motor1.attach(D6, 1000, 2000);
-    // motor2.attach(D7, 1000, 2000);
-    motor1.attach(D4, 1000, 2000);
-    motor2.attach(D7, 1000, 2000);
+    motor1.attach(sparkGPIO,   1000, 2000);
+    motor2.attach(flipskyGPIO, 1000, 2000);
     motor1.writeMicroseconds(1500);
     motor2.writeMicroseconds(1500);
 }

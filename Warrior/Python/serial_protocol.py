@@ -77,15 +77,21 @@ class WarriorSerial:
 
 
 def query_device_name(port: str, baudrate: int = 115200, timeout: float = 1.0) -> Optional[str]:
+    """Send WHO and read messages until we see a NAME response or hit timeout.
+
+    Devices may be streaming other messages (e.g. PWM at 20 Hz), so we can't
+    trust the first message back — we have to skip past unrelated traffic.
+    """
     with WarriorSerial(port, baudrate, timeout) as device:
-        response = device.request("WHO", timeout=timeout)
-
-    if response is None:
-        return None
-
-    parts = response.split(",")
-
-    if len(parts) == 2 and parts[0] == "NAME":
-        return parts[1]
+        device.send_message("WHO")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            remaining = max(0.05, deadline - time.time())
+            response = device.read_message(timeout=remaining)
+            if response is None:
+                continue
+            parts = response.split(",")
+            if len(parts) == 2 and parts[0] == "NAME":
+                return parts[1]
 
     return None
