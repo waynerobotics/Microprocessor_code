@@ -40,7 +40,7 @@ void isrB()
 
 void setup()
 {
-    Serial.begin(9600);
+    Serial.begin(115200);
     pinMode(pwmInPinA, INPUT);
     pinMode(pwmInPinB, INPUT);
     attachInterrupt(digitalPinToInterrupt(pwmInPinA), isrA, CHANGE);
