@@ -2,6 +2,7 @@
 #include <LiquidCrystal.h>
 #include <RadioLink.h>
 #include <SerialProtocol.h>
+#include <FanControl.h>
 
 // =====================================================================
 // 00_base — base station
@@ -30,6 +31,7 @@ const char* DEVICE_NAME = "00_base";
 // === Feature toggles =================================================
 const bool Shield     = true;   // LCD Keypad Shield as input
 const bool Controller = false;  // RadioLink SBUS as input (ESP32 platforms)
+const bool Fans       = true;   // NeoPixel fan-ring animation
 
 // === Per-swerve output toggles (default: all enabled) ================
 bool swerve_02 = true;
@@ -42,6 +44,12 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);  // RS, Enable, D4, D5, D6, D7
 const uint8_t SBUS_RX_PIN = 12;       // ignored on AVR
 RadioLink     radio(Serial1, SBUS_RX_PIN);
 SerialProtocol serialProtocol(DEVICE_NAME);
+
+// NeoPixel fan rings — pin 11 stays clear of the LCD shield (4-9) and A0.
+const uint8_t FAN_LED_PIN  = 11;
+const uint8_t FAN_COUNT    = 3;
+const uint8_t LEDS_PER_FAN = 20;
+FanControl fans(FAN_LED_PIN, FAN_COUNT, LEDS_PER_FAN);
 
 // === Command state ====================================================
 int currentSpark   = 0;
@@ -83,6 +91,10 @@ void setup()
         radio.setChannelCalibration(1,  200,  822, 1598);  // CH2 elevator -> spark
         radio.setChannelCalibration(3,  314, 1084, 1800);  // CH4 rudder   -> flipsky
     }
+
+    if (Fans) {
+        fans.begin();
+    }
 }
 
 void loop()
@@ -102,6 +114,10 @@ void loop()
             lastLcdMs = millis();
             updateLcd();
         }
+    }
+
+    if (Fans) {
+        fans.updateAnimation();
     }
 
     serialProtocol.update();
