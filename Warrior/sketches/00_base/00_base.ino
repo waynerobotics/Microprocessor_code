@@ -3,6 +3,7 @@
 #include <RadioLink.h>
 #include <SerialProtocol.h>
 #include <FanControl.h>
+#include <IRremote.hpp>
 
 // =====================================================================
 // 00_base — base station
@@ -29,9 +30,10 @@
 const char* DEVICE_NAME = "00_base";
 
 // === Feature toggles =================================================
-const bool Shield     = true;   // LCD Keypad Shield as input
-const bool Controller = false;  // RadioLink SBUS as input (ESP32 platforms)
-const bool Fans       = true;   // NeoPixel fan-ring animation
+const bool Shield      = true;   // LCD Keypad Shield as input
+const bool Controller  = false;  // RadioLink SBUS as input (ESP32 platforms)
+const bool Fans        = false;   // NeoPixel fan-ring animation
+const bool FairyLights = false;   // IR-toggled fairy light output
 
 // === Per-swerve output toggles (default: all enabled) ================
 bool swerve_02 = true;
@@ -45,11 +47,18 @@ const uint8_t SBUS_RX_PIN = 12;       // ignored on AVR
 RadioLink     radio(Serial1, SBUS_RX_PIN);
 SerialProtocol serialProtocol(DEVICE_NAME);
 
-// NeoPixel fan rings — pin 11 stays clear of the LCD shield (4-9) and A0.
-const uint8_t FAN_LED_PIN  = 11;
+// NeoPixel fan rings — pin 10 stays clear of the LCD shield (4-9) and A0.
+const uint8_t FAN_LED_PIN  = 10;
 const uint8_t FAN_COUNT    = 3;
 const uint8_t LEDS_PER_FAN = 20;
 FanControl fans(FAN_LED_PIN, FAN_COUNT, LEDS_PER_FAN);
+
+// Fairy lights: an IR receiver toggles a single output pin (drive a MOSFET
+// or relay). Power button on the IR remote toggles the lights on/off.
+const uint8_t IR_PIN              = 2;
+const uint8_t FAIRY_LIGHT_PIN     = 11;
+const uint32_t IR_POWER_BUTTON    = 0xBF40FF00;
+bool fairyLightState = false;
 
 // === Command state ====================================================
 int currentSpark   = 0;
@@ -71,6 +80,8 @@ void sendMotorMessage(const char* target, int spark, int flipsky);
 void updateLcd();
 String readShieldButton();
 void handleSerialMessage(const char* message);
+void fairyLightSetup();
+void fairyLightLoop();
 
 // =====================================================================
 void setup()
@@ -95,6 +106,10 @@ void setup()
     if (Fans) {
         fans.begin();
     }
+
+    if (FairyLights) {
+        fairyLightSetup();
+    }
 }
 
 void loop()
@@ -118,6 +133,10 @@ void loop()
 
     if (Fans) {
         fans.updateAnimation();
+    }
+
+    if (FairyLights) {
+        fairyLightLoop();
     }
 
     serialProtocol.update();
@@ -249,4 +268,29 @@ void handleSerialMessage(const char* message)
     } else {
         serialProtocol.sendError("unknown_message");
     }
+}
+
+// =====================================================================
+// Fairy lights — IR remote toggles an output pin on/off.
+// Drive the pin into a MOSFET or relay; don't pull mains light strings
+// directly off an Arduino GPIO.
+// =====================================================================
+void fairyLightSetup()
+{
+    pinMode(FAIRY_LIGHT_PIN, OUTPUT);
+    digitalWrite(FAIRY_LIGHT_PIN, LOW);
+    IrReceiver.begin(IR_PIN, ENABLE_LED_FEEDBACK);
+}
+
+void fairyLightLoop()
+{
+    if (!IrReceiver.decode()) return;
+
+    uint32_t code = IrReceiver.decodedIRData.decodedRawData;
+    if (code == IR_POWER_BUTTON) {
+        fairyLightState = !fairyLightState;
+        digitalWrite(FAIRY_LIGHT_PIN, fairyLightState ? HIGH : LOW);
+    }
+
+    IrReceiver.resume();
 }
