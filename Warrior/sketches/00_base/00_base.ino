@@ -43,8 +43,8 @@ bool swerve_04 = true;
 // === Hardware =========================================================
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);  // RS, Enable, D4, D5, D6, D7
 
-const uint8_t SBUS_RX_PIN = 12;       // ignored on AVR
-RadioLink     radio(Serial1, SBUS_RX_PIN);
+const uint8_t SBUS_RX_PIN = 12;
+// RadioLink     radio(Serial1, SBUS_RX_PIN);
 SerialProtocol serialProtocol(DEVICE_NAME);
 
 // NeoPixel fan rings — pin 10 stays clear of the LCD shield (4-9) and A0.
@@ -97,10 +97,10 @@ void setup()
     }
 
     if (Controller) {
-        radio.begin();
-        // Per-stick calibration (raw min/center/max measured on the radio)
-        radio.setChannelCalibration(1,  200,  822, 1598);  // CH2 elevator -> spark
-        radio.setChannelCalibration(3,  314, 1084, 1800);  // CH4 rudder   -> flipsky
+        // radio.begin();
+        // // Per-stick calibration (raw min/center/max measured on the radio)
+        // radio.setChannelCalibration(1,  200,  822, 1598);  // CH2 elevator -> spark
+        // radio.setChannelCalibration(3,  314, 1084, 1800);  // CH4 rudder   -> flipsky
     }
 
     if (Fans) {
@@ -174,22 +174,22 @@ void handleShieldInput()
 // =====================================================================
 void handleControllerInput()
 {
-    radio.update();
-    RadioLink::ControllerState state = radio.getState();
+    // radio.update();
+    // RadioLink::ControllerState state = radio.getState();
 
-    if (state.valid) {
-        currentSpark   = state.elevator;
-        currentFlipsky = state.rudder;
-    } else {
-        currentSpark   = 0;
-        currentFlipsky = 0;
-    }
+    // if (state.valid) {
+    //     currentSpark   = state.elevator;
+    //     currentFlipsky = state.rudder;
+    // } else {
+    //     currentSpark   = 0;
+    //     currentFlipsky = 0;
+    // }
 
-    static bool prevButtonVRB = false;
-    if (state.valid && state.buttonVRB && !prevButtonVRB) {
-        cycleTargets();
-    }
-    prevButtonVRB = state.valid && state.buttonVRB;
+    // static bool prevButtonVRB = false;
+    // if (state.valid && state.buttonVRB && !prevButtonVRB) {
+    //     cycleTargets();
+    // }
+    // prevButtonVRB = state.valid && state.buttonVRB;
 }
 
 // =====================================================================
