@@ -5,16 +5,16 @@
 // Running on Arduino Nano ESP32
 // Receives <MOT,target,spark,flipsky> from Python bridge. Acts on the message
 // only if `target` matches DEVICE_NAME — other swerves' messages are ignored.
-// Values are normalized -100..100, where 0 = neutral. Drives D6/D7 via the
+// Values are normalized -100..100, where 0 = neutral. Drives D2/D3 via the
 // MotorControl library.
-// IMPORTANT: use raw GPIO numbers, not D6/D7 aliases — ESP32Servo misbehaves with the aliases
+// IMPORTANT: use raw GPIO numbers, not Dx aliases — ESP32Servo misbehaves with the aliases
 
 const char* DEVICE_NAME = "02_swerve";
 // const char* DEVICE_NAME = "03_swerve";
 // const char* DEVICE_NAME = "04_swerve";
 
-const int sparkGPIO   = 9;   // = D6
-const int flipskyGPIO = 10;  // = D7
+const int sparkGPIO   = 5;   // = D2
+const int flipskyGPIO = 6;   // = D3
 
 SerialProtocol serialProtocol(DEVICE_NAME);
 MotorControl motors(sparkGPIO, flipskyGPIO);
