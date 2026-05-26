@@ -3,10 +3,10 @@
 #include <MotorControl.h>
 
 // Running on Arduino Nano ESP32
-// Receives <MOT,target,spark,flipsky> from Python bridge. Acts on the message
+// Receives <DRV,target,drive_percent> from Python bridge. Acts on the message
 // only if `target` matches DEVICE_NAME — other swerves' messages are ignored.
-// Values are normalized -100..100, where 0 = neutral. Drives D2/D3 via the
-// MotorControl library.
+// drive_percent is -100..100 (0 = neutral) and is routed to the FlipSky ESC.
+// Steering (SPARK MAX) is no longer driven from the Arduino.
 // IMPORTANT: use raw GPIO numbers, not Dx aliases — ESP32Servo misbehaves with the aliases
 
 const char* DEVICE_NAME = "02_swerve";
@@ -45,25 +45,34 @@ void handleSerialMessage(const char* message)
         serialProtocol.sendDeviceName();
     } else if (strcmp(message, "PING") == 0) {
         serialProtocol.sendAck("PONG");
-    } else if (strncmp(message, "MOT,", 4) == 0) {
-        handleMotorMessage(message);
+    } else if (strncmp(message, "DRV,", 4) == 0) {
+        handleDriveMessage(message);
     } else {
         serialProtocol.sendError("unknown_message");
     }
 }
 
-void handleMotorMessage(const char* message)
+void handleDriveMessage(const char* message)
 {
-    // Format: "MOT,target,spark,flipsky"  (values normalized -100..100)
-    // Ignore commands not addressed to this device.
+    // Format: "DRV,target,drive_percent"  (drive_percent -100..100, FlipSky only)
     char target[24] = {0};
-    int spark = 0, flipsky = 0;
-    if (sscanf(message, "MOT,%23[^,],%d,%d", target, &spark, &flipsky) != 3) {
+    int drivePercent = 0;
+    int parsed = sscanf(message, "DRV,%23[^,],%d", target, &drivePercent);
+
+    // Target parsed but addressed to another swerve: silent ignore (shared bus).
+    if (parsed >= 1 && strcmp(target, DEVICE_NAME) != 0) {
         return;
     }
-    if (strcmp(target, DEVICE_NAME) != 0) {
+    if (parsed != 2) {
+        serialProtocol.sendError("bad_drv_format");
         return;
     }
-    motors.setCommands(spark, flipsky);
-    // No ACK sent — bridge does not read responses, sending would fill TX buffer and block
+
+    if (drivePercent < -100) drivePercent = -100;
+    if (drivePercent >  100) drivePercent =  100;
+    motors.setFlipskyCommand(drivePercent);
+
+    char ackPayload[40];
+    snprintf(ackPayload, sizeof(ackPayload), "DRV,%s", DEVICE_NAME);
+    serialProtocol.sendAck(ackPayload);
 }
