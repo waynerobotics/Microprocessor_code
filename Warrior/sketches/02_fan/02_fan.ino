@@ -37,8 +37,10 @@ const uint16_t BAND_LEN = TOTAL_LEDS / 5;  // 12 LEDs per color band
 
 // Timing
 const uint16_t CHASE_FRAME_MS   = 60;    // band shift cadence
-const uint16_t STROBE_MS        = 60;    // fast on/off half-period
-const uint16_t FLASH_MS         = 400;   // slow on/off half-period
+const uint16_t STROBE_ON_MS     = 60;    // fast on
+const uint16_t STROBE_OFF_MS    = 60;    // fast off
+const uint16_t FLASH_ON_MS      = 900;   // slow on (color dwells)
+const uint16_t FLASH_OFF_MS     = 200;   // slow off
 const uint32_t MODE_DURATION_MS = 3000;  // strobe<->flash swap interval
 const uint16_t SWEEP_STEP_MS    = 30;    // 30ms/step * 255 steps ~= 7.6s 0->100%
 
@@ -93,7 +95,9 @@ void loop() {
         strobeMode = !strobeMode;
     }
 
-    uint16_t blinkRate = strobeMode ? STROBE_MS : FLASH_MS;
+    uint16_t blinkRate = blinkOn
+        ? (strobeMode ? STROBE_ON_MS  : FLASH_ON_MS)
+        : (strobeMode ? STROBE_OFF_MS : FLASH_OFF_MS);
     if (now - lastBlinkMs >= blinkRate) {
         lastBlinkMs = now;
         blinkOn = !blinkOn;
@@ -102,7 +106,7 @@ void loop() {
 
     if (now - lastChaseMs >= CHASE_FRAME_MS) {
         lastChaseMs = now;
-        chaseOffset = (chaseOffset + 1) % TOTAL_LEDS;
+        chaseOffset = (chaseOffset + TOTAL_LEDS - 1) % TOTAL_LEDS;  // reverse
         if (blinkOn) dirty = true;
     }
 
