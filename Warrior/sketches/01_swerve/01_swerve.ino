@@ -8,11 +8,11 @@
 // drive_percent is -100..100 (0 = neutral) and is routed to the FlipSky ESC.
 // IMPORTANT: use raw GPIO numbers, not Dx aliases — ESP32Servo misbehaves with the aliases
 
-const char* DEVICE_NAME = "02_swerve";
+const char *DEVICE_NAME = "02_swerve";
 // const char* DEVICE_NAME = "03_swerve";
 // const char* DEVICE_NAME = "04_swerve";
 
-const int flipskyGPIO = 6;   // = D3
+const int flipskyGPIO = 6; // = D3
 
 SerialProtocol serialProtocol(DEVICE_NAME);
 MotorControl motors(flipskyGPIO);
@@ -27,7 +27,8 @@ void loop()
 {
     serialProtocol.update();
 
-    if (serialProtocol.hasMessage()) {
+    if (serialProtocol.hasMessage())
+    {
         handleSerialMessage(serialProtocol.getMessage());
         serialProtocol.clearMessage();
     }
@@ -37,20 +38,27 @@ void loop()
     motors.update();
 }
 
-void handleSerialMessage(const char* message)
+void handleSerialMessage(const char *message)
 {
-    if (strcmp(message, "WHO") == 0) {
+    if (strcmp(message, "WHO") == 0)
+    {
         serialProtocol.sendDeviceName();
-    } else if (strcmp(message, "PING") == 0) {
+    }
+    else if (strcmp(message, "PING") == 0)
+    {
         serialProtocol.sendAck("PONG");
-    } else if (strncmp(message, "DRV,", 4) == 0) {
+    }
+    else if (strncmp(message, "DRV,", 4) == 0)
+    {
         handleDriveMessage(message);
-    } else {
+    }
+    else
+    {
         serialProtocol.sendError("unknown_message");
     }
 }
 
-void handleDriveMessage(const char* message)
+void handleDriveMessage(const char *message)
 {
     // Format: "DRV,target,drive_percent"  (drive_percent -100..100, FlipSky only)
     char target[24] = {0};
@@ -58,16 +66,20 @@ void handleDriveMessage(const char* message)
     int parsed = sscanf(message, "DRV,%23[^,],%d", target, &drivePercent);
 
     // Target parsed but addressed to another swerve: silent ignore (shared bus).
-    if (parsed >= 1 && strcmp(target, DEVICE_NAME) != 0) {
+    if (parsed >= 1 && strcmp(target, DEVICE_NAME) != 0)
+    {
         return;
     }
-    if (parsed != 2) {
+    if (parsed != 2)
+    {
         serialProtocol.sendError("bad_drv_format");
         return;
     }
 
-    if (drivePercent < -100) drivePercent = -100;
-    if (drivePercent >  100) drivePercent =  100;
+    if (drivePercent < -100)
+        drivePercent = -100;
+    if (drivePercent > 100)
+        drivePercent = 100;
     motors.setFlipskyCommand(drivePercent);
 
     char ackPayload[40];

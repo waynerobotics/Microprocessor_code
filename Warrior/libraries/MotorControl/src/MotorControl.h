@@ -13,7 +13,8 @@
 //   motors.setFlipskyCommand(drive);   // when a new command arrives
 //   motors.update();                   // every loop()
 
-class MotorControl {
+class MotorControl
+{
 public:
   MotorControl(uint8_t flipskyPin);
 
@@ -21,16 +22,16 @@ public:
 
   void setFlipskyCommand(int command); // -100..100
 
-  void stopAll();    // force neutral now (also clears stored command)
-  void update();     // call every loop(): applies watchdog + writes output
+  void stopAll(); // force neutral now (also clears stored command)
+  void update();  // call every loop(): applies watchdog + writes output
 
   int getFlipskyCommand() const;
   int getFlipskyMicroseconds() const;
 
   static const int CMD_MIN = -100;
-  static const int CMD_MAX =  100;
+  static const int CMD_MAX = 100;
   static const int REVERSE_US = 1000;
-  static const int STOP_US    = 1500;
+  static const int STOP_US = 1500;
   static const int FORWARD_US = 2000;
   static const unsigned long WATCHDOG_TIMEOUT_MS = 500;
 
@@ -39,7 +40,7 @@ private:
 
   uint8_t _flipskyPin;
 
-  int _flipskyCommand      = 0;
+  int _flipskyCommand = 0;
   int _flipskyMicroseconds = STOP_US;
 
   unsigned long _lastCommandMs = 0;
