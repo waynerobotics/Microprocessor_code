@@ -94,7 +94,7 @@ void loop() {
 void handleNeoPixel() {
   bool signalState = digitalRead(SIGNAL_PIN);
 
-  if (signalState == LOW) {
+  if (signalState == HIGH) {
     setColor(255, 255, 0);
   } else {
     flashRed();
