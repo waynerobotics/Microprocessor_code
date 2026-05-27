@@ -6,18 +6,16 @@
 // Receives <DRV,target,drive_percent> from Python bridge. Acts on the message
 // only if `target` matches DEVICE_NAME — other swerves' messages are ignored.
 // drive_percent is -100..100 (0 = neutral) and is routed to the FlipSky ESC.
-// Steering (SPARK MAX) is no longer driven from the Arduino.
 // IMPORTANT: use raw GPIO numbers, not Dx aliases — ESP32Servo misbehaves with the aliases
 
 const char* DEVICE_NAME = "02_swerve";
 // const char* DEVICE_NAME = "03_swerve";
 // const char* DEVICE_NAME = "04_swerve";
 
-const int sparkGPIO   = 5;   // = D2
 const int flipskyGPIO = 6;   // = D3
 
 SerialProtocol serialProtocol(DEVICE_NAME);
-MotorControl motors(sparkGPIO, flipskyGPIO);
+MotorControl motors(flipskyGPIO);
 
 void setup()
 {
