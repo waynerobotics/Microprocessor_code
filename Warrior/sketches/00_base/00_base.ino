@@ -29,7 +29,11 @@ bool lightState = false;
 #define LEDS_PER_FAN 20
 #define TOTAL_LEDS (FANS * LEDS_PER_FAN)
 #define BLOCK_LEN 20
-#define FRAME_DELAY_MS 40
+#define FRAME_DELAY_MS 10
+#define LOOPS_BEFORE_FLASH 7 // NEW FAN VARIABLES ADDED BELOW
+#define FLASH_COUNT 3
+#define FLASH_ON_MS 150
+#define FLASH_OFF_MS 150
 
 Adafruit_NeoPixel strip(TOTAL_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -41,6 +45,21 @@ void setFanBackground() {
     int start = f * LEDS_PER_FAN;
     uint32_t c = (f % 2 == 0) ? GREEN : YELLOW;
     strip.fill(c, start, LEDS_PER_FAN);
+  }
+}
+// ADDED NEW FAN FUNCTION (for ON/OFF effect)
+// Note: the function calls delay(150)x6 may affect "handleIR"
+void doFlash() {
+  for (int i = 0; i < FLASH_COUNT; i++) {
+    // ON
+    setFanBackground();
+    strip.show();
+    delay(FLASH_ON_MS);
+
+    // OFF
+    strip.clear();
+    strip.show();
+    delay(FLASH_OFF_MS);
   }
 }
 
@@ -55,6 +74,7 @@ void fanSetup() {
 
 void fanLoop() {
   static int head = 0;
+  static int loopCount = 0;
 
   setFanBackground();
 
@@ -69,6 +89,15 @@ void fanLoop() {
   delay(FRAME_DELAY_MS);
 
   head = (head + 1) % TOTAL_LEDS;
+
+  // Detect a completed loop
+  if (head == 0) {
+    loopCount++;
+    if (loopCount >= LOOPS_BEFORE_FLASH) {
+      loopCount = 0;
+      doFlash();
+    }
+  }
 }
 
 // === Combined setup / loop ===========================================
